@@ -395,7 +395,7 @@ func New(cfg Config, clientConfig ingester_client.Config, limits *validation.Ove
 		subservices = append(subservices, d.forwarder)
 	}
 
-	d.PushWithMiddlewares = d.wrapPushWithMiddlewares(d.PushWithCleanup)
+	d.PushWithMiddlewares = d.wrapPushWithMiddlewares(d.push)
 
 	subservices = append(subservices, d.ingesterPool, d.activeUsers)
 	d.subservices, err = services.NewManager(subservices...)
@@ -628,7 +628,7 @@ func (d *Distributor) wrapPushWithMiddlewares(next push.Func) push.Func {
 	// The middlewares will be applied to the request (!) in the specified order, from first to last.
 	// To guarantee that, middleware functions will be called in reversed order, wrapping the
 	// result from previous call.
-	middlewares = append(middlewares, d.instanceLimitsMiddleware) // should run first
+	middlewares = append(middlewares, d.limitsMiddleware) // should run first because it checks limits before other middlewares need to read the request body
 	middlewares = append(middlewares, d.prePushHaDedupeMiddleware)
 	middlewares = append(middlewares, d.prePushRelabelMiddleware)
 	middlewares = append(middlewares, d.prePushForwardingMiddleware)
@@ -641,13 +641,18 @@ func (d *Distributor) wrapPushWithMiddlewares(next push.Func) push.Func {
 }
 
 func (d *Distributor) prePushHaDedupeMiddleware(next push.Func) push.Func {
-	return func(ctx context.Context, req *mimirpb.WriteRequest, cleanup func()) (*mimirpb.WriteResponse, error) {
+	return func(ctx context.Context, pushReq *push.Request) (*mimirpb.WriteResponse, error) {
 		cleanupInDefer := true
 		defer func() {
 			if cleanupInDefer {
-				cleanup()
+				pushReq.CleanUp()
 			}
 		}()
+
+		req, err := pushReq.WriteRequest(ctx)
+		if err != nil {
+			return nil, err
+		}
 
 		userID, err := tenant.TenantID(ctx)
 		if err != nil {
@@ -656,7 +661,7 @@ func (d *Distributor) prePushHaDedupeMiddleware(next push.Func) push.Func {
 
 		if len(req.Timeseries) == 0 || !d.limits.AcceptHASamples(userID) {
 			cleanupInDefer = false
-			return next(ctx, req, cleanup)
+			return next(ctx, pushReq)
 		}
 
 		haReplicaLabel := d.limits.HAReplicaLabel(userID)
@@ -704,18 +709,23 @@ func (d *Distributor) prePushHaDedupeMiddleware(next push.Func) push.Func {
 		}
 
 		cleanupInDefer = false
-		return next(ctx, req, cleanup)
+		return next(ctx, pushReq)
 	}
 }
 
 func (d *Distributor) prePushRelabelMiddleware(next push.Func) push.Func {
-	return func(ctx context.Context, req *mimirpb.WriteRequest, cleanup func()) (*mimirpb.WriteResponse, error) {
+	return func(ctx context.Context, pushReq *push.Request) (*mimirpb.WriteResponse, error) {
 		cleanupInDefer := true
 		defer func() {
 			if cleanupInDefer {
-				cleanup()
+				pushReq.CleanUp()
 			}
 		}()
+
+		req, err := pushReq.WriteRequest(ctx)
+		if err != nil {
+			return nil, err
+		}
 
 		userID, err := tenant.TenantID(ctx)
 		if err != nil {
@@ -754,11 +764,11 @@ func (d *Distributor) prePushRelabelMiddleware(next push.Func) push.Func {
 		}
 
 		cleanupInDefer = false
-		return next(ctx, req, cleanup)
+		return next(ctx, pushReq)
 	}
 }
 
-// prePushForwardingMiddleware is used as push.Func middleware in front of PushWithCleanup method.
+// prePushForwardingMiddleware is used as push.Func middleware in front of push method.
 // It forwards time series to configured remote_write endpoints if the forwarding rules say so.
 func (d *Distributor) prePushForwardingMiddleware(next push.Func) push.Func {
 	if d.forwarder == nil {
@@ -766,15 +776,19 @@ func (d *Distributor) prePushForwardingMiddleware(next push.Func) push.Func {
 		return next
 	}
 
-	return func(ctx context.Context, req *mimirpb.WriteRequest, cleanup func()) (*mimirpb.WriteResponse, error) {
+	return func(ctx context.Context, pushReq *push.Request) (*mimirpb.WriteResponse, error) {
 		userID, err := tenant.TenantID(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req, err := pushReq.WriteRequest(ctx)
 		if err != nil {
 			return nil, err
 		}
 
 		var errCh <-chan error
 		req.Timeseries, errCh = d.forwardSamples(ctx, userID, req.Timeseries)
-		resp, nextErr := next(ctx, req, cleanup)
+		resp, nextErr := next(ctx, pushReq)
 		errs := []error{nextErr}
 
 	LOOP:
@@ -797,33 +811,25 @@ func (d *Distributor) prePushForwardingMiddleware(next push.Func) push.Func {
 	}
 }
 
-// instanceLimitsMiddleware checks for instance limits and rejects request if this instance cannot process it at the moment.
-func (d *Distributor) instanceLimitsMiddleware(next push.Func) push.Func {
-	return func(ctx context.Context, req *mimirpb.WriteRequest, callerCleanup func()) (*mimirpb.WriteResponse, error) {
+// limitsMiddleware checks for instance limits and rejects request if this instance cannot process it at the moment.
+func (d *Distributor) limitsMiddleware(next push.Func) push.Func {
+	return func(ctx context.Context, pushReq *push.Request) (*mimirpb.WriteResponse, error) {
 		// Increment number of requests and bytes before doing the checks, so that we hit error if this request crosses the limits.
 		inflight := d.inflightPushRequests.Inc()
-		reqSize := int64(req.Size())
-		inflightBytes := d.inflightPushRequestsBytes.Add(reqSize)
 
 		// Decrement counter after all ingester calls have finished or been cancelled.
-		cleanup := func() {
-			callerCleanup()
+		pushReq.AddCleanup(func() {
 			d.inflightPushRequests.Dec()
-			d.inflightPushRequestsBytes.Sub(reqSize)
-		}
+		})
 		cleanupInDefer := true
 		defer func() {
 			if cleanupInDefer {
-				cleanup()
+				pushReq.CleanUp()
 			}
 		}()
 
 		if d.cfg.InstanceLimits.MaxInflightPushRequests > 0 && inflight > int64(d.cfg.InstanceLimits.MaxInflightPushRequests) {
 			return nil, errMaxInflightRequestsReached
-		}
-
-		if d.cfg.InstanceLimits.MaxInflightPushRequestsBytes > 0 && inflightBytes > int64(d.cfg.InstanceLimits.MaxInflightPushRequestsBytes) {
-			return nil, errMaxInflightRequestsBytesReached
 		}
 
 		if d.cfg.InstanceLimits.MaxIngestionRate > 0 {
@@ -832,8 +838,37 @@ func (d *Distributor) instanceLimitsMiddleware(next push.Func) push.Func {
 			}
 		}
 
+		userID, err := tenant.TenantID(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		now := mtime.Now()
+		if !d.requestRateLimiter.AllowN(now, userID, 1) {
+			validation.DiscardedRequests.WithLabelValues(validation.ReasonRateLimited, userID).Add(1)
+
+			// Return a 429 here to tell the client it is going too fast.
+			// Client may discard the data or slow down and re-send.
+			// Prometheus v2.26 added a remote-write option 'retry_on_http_429'.
+			return nil, httpgrpc.Errorf(http.StatusTooManyRequests, validation.NewRequestRateLimitedError(d.limits.RequestRate(userID), d.limits.RequestBurstSize(userID)).Error())
+		}
+
+		req, err := pushReq.WriteRequest(ctx)
+		if err != nil {
+			return nil, err
+		}
+		reqSize := int64(req.Size())
+		inflightBytes := d.inflightPushRequestsBytes.Add(reqSize)
+		pushReq.AddCleanup(func() {
+			d.inflightPushRequestsBytes.Sub(reqSize)
+		})
+
+		if d.cfg.InstanceLimits.MaxInflightPushRequestsBytes > 0 && inflightBytes > int64(d.cfg.InstanceLimits.MaxInflightPushRequestsBytes) {
+			return nil, errMaxInflightRequestsBytesReached
+		}
+
 		cleanupInDefer = false
-		return next(ctx, req, cleanup)
+		return next(ctx, pushReq)
 	}
 }
 
@@ -858,20 +893,29 @@ func (d *Distributor) forwardSamples(ctx context.Context, userID string, ts []mi
 	return ts, forwardingErrCh
 }
 
-// Push implements client.IngesterServer
+// Push is gRPC method registered as client.IngesterServer and distributor.DistributorServer.
 func (d *Distributor) Push(ctx context.Context, req *mimirpb.WriteRequest) (*mimirpb.WriteResponse, error) {
-	return d.PushWithMiddlewares(ctx, req, func() { mimirpb.ReuseSlice(req.Timeseries) })
+	pushReq := push.NewParsedRequest(req)
+	pushReq.AddCleanup(func() { mimirpb.ReuseSlice(req.Timeseries) })
+	return d.PushWithMiddlewares(ctx, pushReq)
 }
 
-// PushWithCleanup takes a WriteRequest and distributes it to ingesters using the ring.
+// push takes a WriteRequest and distributes it to ingesters using the ring.
 // Strings in `req` may be pointers into the gRPC buffer which will be reused, so must be copied if retained.
-func (d *Distributor) PushWithCleanup(ctx context.Context, req *mimirpb.WriteRequest, cleanup func()) (*mimirpb.WriteResponse, error) {
+// push does not check limits like ingestion rate and inflight requests.
+// These limits are checked either by Push gRPC method (when invoked via gRPC) or prePushLimitsMiddleware (when invoked via HTTP)
+func (d *Distributor) push(ctx context.Context, pushReq *push.Request) (*mimirpb.WriteResponse, error) {
 	cleanupInDefer := true
 	defer func() {
 		if cleanupInDefer {
-			cleanup()
+			pushReq.CleanUp()
 		}
 	}()
+
+	req, err := pushReq.WriteRequest(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	userID, err := tenant.TenantID(ctx)
 	if err != nil {
@@ -884,15 +928,6 @@ func (d *Distributor) PushWithCleanup(ctx context.Context, req *mimirpb.WriteReq
 	}
 
 	now := mtime.Now()
-	if !d.requestRateLimiter.AllowN(now, userID, 1) {
-		validation.DiscardedRequests.WithLabelValues(validation.ReasonRateLimited, userID).Add(1)
-
-		// Return a 429 here to tell the client it is going too fast.
-		// Client may discard the data or slow down and re-send.
-		// Prometheus v2.26 added a remote-write option 'retry_on_http_429'.
-		return nil, httpgrpc.Errorf(http.StatusTooManyRequests, validation.NewRequestRateLimitedError(d.limits.RequestRate(userID), d.limits.RequestBurstSize(userID)).Error())
-	}
-
 	d.activeUsers.UpdateUserTimestamp(userID, now)
 
 	source := util.GetSourceIPsFromOutgoingCtx(ctx)
@@ -1047,7 +1082,7 @@ func (d *Distributor) PushWithCleanup(ctx context.Context, req *mimirpb.WriteReq
 		}
 
 		return d.send(localCtx, ingester, timeseries, metadata, req.Source)
-	}, func() { cleanup(); cancel() })
+	}, func() { pushReq.CleanUp(); cancel() })
 
 	if err != nil {
 		return nil, err

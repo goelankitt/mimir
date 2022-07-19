@@ -61,6 +61,8 @@ const (
 
 	StoreConsistencyCheckFailed ID = "store-consistency-check-failed"
 	BucketIndexTooOld           ID = "bucket-index-too-old"
+
+	MsgSizeTooLarge ID = "msg-size-too-large"
 )
 
 // Message returns the provided msg, appending the error id.

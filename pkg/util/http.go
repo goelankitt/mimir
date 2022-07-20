@@ -174,7 +174,7 @@ func ParseProtoReader(ctx context.Context, reader io.Reader, expectedSize, maxSi
 }
 
 func NewMsgSizeTooLargeErr(actual, limit int) error {
-	return errors.New(globalerror.MsgSizeTooLarge.MessageWithLimitConfig(fmt.Sprintf("the incoming push request has been rejected because its message size of %d bytes is larger than the allowed limit of %d bytes", actual, limit), globalerror.MaxRecvMsgSizeFlag))
+	return errors.New(globalerror.MsgSizeTooLarge.MessageWithGlobalLimitConfig(fmt.Sprintf("the incoming push request has been rejected because its message size of %d bytes is larger than the allowed limit of %d bytes", actual, limit), "distributor.max-recv-msg-size"))
 }
 
 func decompressRequest(dst []byte, reader io.Reader, expectedSize, maxSize int, compression CompressionType, sp opentracing.Span) (body []byte, err error) {

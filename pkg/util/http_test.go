@@ -227,7 +227,7 @@ func TestIsRequestBodyTooLargeRegression(t *testing.T) {
 
 func TestNewMsgSizeTooLargeErr(t *testing.T) {
 	err := util.NewMsgSizeTooLargeErr(100, 50)
-	msg := `the incoming push request has been rejected because its message size of 100 bytes is larger than the allowed limit of 50 bytes (err-mimir-msg-size-too-large). To adjust the related per-tenant limit, configure -distributor.max-recv-msg-size, or contact your service administrator.`
+	msg := `the incoming push request has been rejected because its message size of 100 bytes is larger than the allowed limit of 50 bytes (err-mimir-msg-size-too-large). To adjust the related limit, configure -distributor.max-recv-msg-size, or contact your service administrator.`
 
 	assert.Equal(t, msg, err.Error())
 }

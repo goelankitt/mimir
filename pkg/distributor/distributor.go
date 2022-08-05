@@ -1140,8 +1140,8 @@ func (m *labelNamesAndValuesResponseMerger) putItemsToMap(message *ingester_clie
 }
 
 // LabelValuesCardinality performs the following two operations in parallel:
-//  * queries ingesters for label values cardinality of a set of labelNames
-//  * queries ingesters for user stats to get the ingester's series head count
+//   - queries ingesters for label values cardinality of a set of labelNames
+//   - queries ingesters for user stats to get the ingester's series head count
 func (d *Distributor) LabelValuesCardinality(ctx context.Context, labelNames []model.LabelName, matchers []*labels.Matcher) (uint64, *ingester_client.LabelValuesCardinalityResponse, error) {
 	var totalSeries uint64
 	var labelValuesCardinalityResponse *ingester_client.LabelValuesCardinalityResponse

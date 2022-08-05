@@ -2167,8 +2167,8 @@ func (i *Ingester) getInstanceLimits() *InstanceLimits {
 }
 
 // ShutdownHandler triggers the following set of operations in order:
-//     * Change the state of ring to stop accepting writes.
-//     * Flush all the chunks.
+//   - Change the state of ring to stop accepting writes.
+//   - Flush all the chunks.
 func (i *Ingester) ShutdownHandler(w http.ResponseWriter, r *http.Request) {
 	originalFlush := i.lifecycler.FlushOnShutdown()
 	// We want to flush the chunks if transfer fails irrespective of original flag.

@@ -9,7 +9,7 @@ package querymiddleware
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
+	io "io"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -121,7 +121,7 @@ func TestDecodeFailedResponse(t *testing.T) {
 	t.Run("internal error", func(t *testing.T) {
 		_, err := PrometheusCodec.DecodeResponse(context.Background(), &http.Response{
 			StatusCode: http.StatusInternalServerError,
-			Body:       ioutil.NopCloser(strings.NewReader("something failed")),
+			Body:       io.NopCloser(strings.NewReader("something failed")),
 		}, nil, log.NewNopLogger())
 		require.Error(t, err)
 
@@ -133,7 +133,7 @@ func TestDecodeFailedResponse(t *testing.T) {
 	t.Run("too many requests", func(t *testing.T) {
 		_, err := PrometheusCodec.DecodeResponse(context.Background(), &http.Response{
 			StatusCode: http.StatusTooManyRequests,
-			Body:       ioutil.NopCloser(strings.NewReader("something failed")),
+			Body:       io.NopCloser(strings.NewReader("something failed")),
 		}, nil, log.NewNopLogger())
 		require.Error(t, err)
 
@@ -287,7 +287,7 @@ func TestResponseRoundtrip(t *testing.T) {
 			httpResponse := &http.Response{
 				StatusCode:    200,
 				Header:        headers,
-				Body:          ioutil.NopCloser(bytes.NewBuffer(body)),
+				Body:          io.NopCloser(bytes.NewBuffer(body)),
 				ContentLength: int64(len(body)),
 			}
 			decoded, err := PrometheusCodec.DecodeResponse(context.Background(), httpResponse, nil, log.NewNopLogger())
@@ -303,7 +303,7 @@ func TestResponseRoundtrip(t *testing.T) {
 			httpResponse = &http.Response{
 				StatusCode:    200,
 				Header:        headers,
-				Body:          ioutil.NopCloser(bytes.NewBuffer(body)),
+				Body:          io.NopCloser(bytes.NewBuffer(body)),
 				ContentLength: int64(len(body)),
 			}
 			encoded, err := PrometheusCodec.EncodeResponse(context.Background(), decoded)
@@ -611,7 +611,7 @@ func BenchmarkPrometheusCodec_DecodeResponse(b *testing.B) {
 	for n := 0; n < b.N; n++ {
 		_, err := PrometheusCodec.DecodeResponse(context.Background(), &http.Response{
 			StatusCode:    200,
-			Body:          ioutil.NopCloser(bytes.NewReader(encodedRes)),
+			Body:          io.NopCloser(bytes.NewReader(encodedRes)),
 			ContentLength: int64(len(encodedRes)),
 		}, nil, log.NewNopLogger())
 		require.NoError(b, err)

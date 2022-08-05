@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -316,7 +315,7 @@ func (c *Client) GetPrometheusRules() ([]*ruler.RuleGroup, error) {
 	}
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +359,7 @@ func (c *Client) GetRuleGroups() (map[string][]rulefmt.RuleGroup, error) {
 	defer res.Body.Close()
 	rgs := map[string][]rulefmt.RuleGroup{}
 
-	data, err := ioutil.ReadAll(res.Body)
+	data, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +493,7 @@ func (c *Client) getRawPage(ctx context.Context, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
-	content, err := ioutil.ReadAll(resp.Body)
+	content, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -1010,7 +1009,7 @@ func (c *Client) DoGetBody(url string) (*http.Response, []byte, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, nil, err
 	}

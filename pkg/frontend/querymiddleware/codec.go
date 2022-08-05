@@ -9,7 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io/ioutil"
+	io "io"
 	"math"
 	"net/http"
 	"net/url"
@@ -335,7 +335,7 @@ func (prometheusCodec) EncodeResponse(ctx context.Context, res Response) (*http.
 		Header: http.Header{
 			"Content-Type": []string{"application/json"},
 		},
-		Body:          ioutil.NopCloser(bytes.NewBuffer(b)),
+		Body:          io.NopCloser(bytes.NewBuffer(b)),
 		StatusCode:    http.StatusOK,
 		ContentLength: int64(len(b)),
 	}

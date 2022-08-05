@@ -78,6 +78,7 @@ var (
 )
 
 // BlocksStorageConfig holds the config information for the blocks storage.
+//
 //nolint:golint
 type BlocksStorageConfig struct {
 	Bucket      bucket.Config     `yaml:",inline"`
@@ -143,6 +144,7 @@ func (cfg *BlocksStorageConfig) Validate() error {
 }
 
 // TSDBConfig holds the config for TSDB opened in the ingesters.
+//
 //nolint:golint
 type TSDBConfig struct {
 	Dir                       string        `yaml:"dir"`

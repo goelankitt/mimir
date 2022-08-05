@@ -13,7 +13,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"os"
 	"path"
@@ -348,7 +347,7 @@ func (s *BucketStore) InitialSync(ctx context.Context) error {
 		return errors.Wrap(err, "sync block")
 	}
 
-	fis, err := ioutil.ReadDir(s.dir)
+	fis, err := os.ReadDir(s.dir)
 	if err != nil {
 		return errors.Wrap(err, "read dir")
 	}
@@ -1366,6 +1365,7 @@ func (s *BucketStore) LabelValues(ctx context.Context, req *storepb.LabelValuesR
 // optionally restricting the search to the series that match the matchers provided.
 // - First we fetch all possible values for this label from the index.
 //   - If no matchers were provided, we just return those values.
+//
 // - Next we load the postings (references to series) for supplied matchers.
 // - Then we load the postings for each label-value fetched in the first step.
 // - Finally, we check if postings from each label-value intersect postings from matchers.
@@ -2637,7 +2637,7 @@ func (r *bucketChunkReader) loadChunks(ctx context.Context, res []seriesEntry, a
 	for i, pIdx := range pIdxs {
 		// Fast forward range reader to the next chunk start in case of sparse (for our purposes) byte range.
 		for readOffset < int(pIdx.offset) {
-			written, err = io.CopyN(ioutil.Discard, bufReader, int64(pIdx.offset)-int64(readOffset))
+			written, err = io.CopyN(io.Discard, bufReader, int64(pIdx.offset)-int64(readOffset))
 			if err != nil {
 				return errors.Wrap(err, "fast forward range reader")
 			}

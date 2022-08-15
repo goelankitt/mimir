@@ -26,7 +26,7 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "mimir.podLabels" (dict "ctx" $.ctx "component" $.component) | nindent 8 }}
+        {{- include "mimir.podLabels" $ | nindent 8 }}
         {{- with .podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -51,6 +51,8 @@ spec:
         {{- toYaml .nodeSelector | nindent 8 }}
       affinity:
         {{- toYaml .affinity | nindent 8 }}
+      topologySpreadConstraints:
+        {{- include "mimir.lib.topologySpreadConstraints" $ | nindent 8 }}
       tolerations:
         {{- toYaml .tolerations | nindent 8 }}
       terminationGracePeriodSeconds: {{ .terminationGracePeriodSeconds }}
